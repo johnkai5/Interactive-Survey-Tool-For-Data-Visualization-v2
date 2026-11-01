@@ -1,6 +1,10 @@
 import { visualizationElement, svgElement, wrapper, debug, screenToSVG, page, visualContainer, autosave, staticvis, hoverDetails } from "../visualizer.js"
+import { findClickDetailTarget, findHoverDetailTarget } from "./elementEvents.js"
 
+// the element whose details are being edited, or null
 let selection = null;
+// visualContainer outlives SVG reloads, so the delegated listeners only need adding once
+let detailListenersAdded = false
 
 export const detailTooltip = (visualizer) => {
 
@@ -19,35 +23,8 @@ export const detailTooltip = (visualizer) => {
             document.getElementById("tooltip-container").removeAttribute("hidden");
             document.getElementById("tooltip-detail").removeAttribute("hidden");
         }
-        let children = svgElement.querySelectorAll('*')
-        for (let i = 0; i < children.length; i++) {
-            if (children[i].tagName != "foreignObject"){
-                if (page.mode == "detailEditor"){
-                    if (children[i].classList.contains("custom")){
-                        children[i].classList.add("createdDetail");
-                    }
-                } else {
-                    children[i].classList.remove('createdDetail');
-                }
-
-                children[i].addEventListener("click", function() {
-                    if (page.mode == "detailEditor"){
-                        selection = i;
-                        const item = children[i]
-                        document.getElementById("tooltip-detail").textContent = item.getAttribute("label") || item.id || item.getAttribute("visualId") || "No Information"
-                        document.getElementById("controlTooltip").removeAttribute("disabled");
-                        document.getElementById("modifyButton").removeAttribute("disabled");
-                        document.getElementById("controlTooltip").focus();
-                    }
-                });
-                children[i].addEventListener('mouseenter', function(e){
-                    if (selection == null) {
-                        const item = children[i]
-                        document.getElementById("tooltip-detail").textContent = item.getAttribute("label") || item.id || item.getAttribute("visualId") || "No Information"
-                    }
-                })
-            }
-        }
+        markCreatedDetails()
+        enableDetailListeners()
     }
 
     // calls on page DOM contents loaded, regardless of role
@@ -107,10 +84,8 @@ export const detailTooltip = (visualizer) => {
             const newDetail = document.getElementById("controlTooltip").value
             document.getElementById("controlTooltip").value = ""
 
-            let children = svgElement.querySelectorAll('*')
-            children[selection].setAttribute('label', newDetail);
-            const item = children[selection]
-            document.getElementById("tooltip-detail").textContent = item.getAttribute("label") || item.id || item.getAttribute("visualId") || "No Information"
+            selection.setAttribute('label', newDetail);
+            showDetail(selection)
             selection = null
             autosave.save();
         });
@@ -128,34 +103,51 @@ export const detailTooltip = (visualizer) => {
         visualizer.onChangeMode()
         // new code here
         if (!svgElement) { return }
-        let children = svgElement.querySelectorAll('*')
-        for (let i = 0; i < children.length; i++) {
-            if (children[i].tagName != "foreignObject"){
-                if (page.mode == "detailEditor"){
-                    if (children[i].classList.contains("custom")){
-                        children[i].classList.add("createdDetail");
-                    }
-                } else {
-                    children[i].classList.remove('createdDetail');
-                }
-
-                children[i].addEventListener("click", function() {
-                    if (page.mode == "detailEditor"){
-                        selection = i;
-                        const item = children[i]
-                        document.getElementById("tooltip-detail").textContent = item.getAttribute("label") || item.id || item.getAttribute("visualId") || "No Information"
-                        document.getElementById("controlTooltip").focus();
-                    }
-                });
-                children[i].addEventListener('mouseenter', function(e){
-                    if (selection == null) {
-                        const item = children[i]
-                        document.getElementById("tooltip-detail").textContent = item.getAttribute("label") || item.id || item.getAttribute("visualId") || "No Information"
-                    }
-                })
-            }
-        }
+        markCreatedDetails()
     }
 
     return decoratedVisualizer
+}
+
+function showDetail(item) {
+    document.getElementById("tooltip-detail").textContent = item.getAttribute("label") || item.id || item.getAttribute("visualId") || "No Information"
+}
+
+// Drawn shapes get the createdDetail class only while the detail editor is open
+function markCreatedDetails() {
+    if (page.mode == "detailEditor") {
+        for (const element of svgElement.querySelectorAll(".custom:not(foreignObject)")) {
+            element.classList.add("createdDetail");
+        }
+    } else {
+        for (const element of svgElement.querySelectorAll(".createdDetail")) {
+            element.classList.remove("createdDetail");
+        }
+    }
+}
+
+// Delegated listeners on visualContainer replace the click and mouseenter listeners that used to be
+// added to every SVG element on each load and each mode change, which piled up with every tool switch.
+function enableDetailListeners() {
+    if (detailListenersAdded) return
+    detailListenersAdded = true
+
+    visualContainer.addEventListener("click", function(e) {
+        if (page.mode != "detailEditor") return
+        const item = findClickDetailTarget(e.target, svgElement)
+        if (!item) return
+
+        selection = item
+        showDetail(item)
+        document.getElementById("controlTooltip").removeAttribute("disabled");
+        document.getElementById("modifyButton").removeAttribute("disabled");
+        document.getElementById("controlTooltip").focus();
+    })
+
+    // mouseenter does not bubble, so mouseover stands in for it
+    visualContainer.addEventListener("mouseover", function(e) {
+        if (selection != null) return
+        const item = findHoverDetailTarget(e.target, svgElement)
+        if (item) showDetail(item)
+    })
 }
