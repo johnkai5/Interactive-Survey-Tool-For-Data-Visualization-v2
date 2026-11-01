@@ -32,7 +32,11 @@ const MODELABEL_NONE = "none"
 const OPTIONTEXT_HIGHLIGHT_ALL = "Highlight All Elements"
 const OPTIONTEXT_CLEAR_HIGHLIGHTS = "Clear All Highlights"
 
-import { visualizationElement, svgElement, page, wrapper, debug, screenToSVG, autosave } from "../visualizer.js"
+import { visualizationElement, svgElement, page, wrapper, debug, screenToSVG, autosave, visualContainer } from "../visualizer.js"
+import { findVisualElement } from "./elementEvents.js"
+
+// visualContainer outlives SVG reloads, so the delegated click listener only needs adding once
+let selectionListenerAdded = false
 
 // These are assigned inside EnableBox() and EnableLassoSelection()
 // so onChangeMode can cancel unfinished drawings when switching tools.
@@ -139,40 +143,28 @@ function createToolButtons() {
     page.addTool(TOOLTEXT_DETAIL, MODELABEL_DETAIL_EDITOR)
 }
 
-// Enable user to select/deselect vector elements by clicking on them
+// Enable user to select/deselect vector elements by clicking on them.
+// One delegated listener covers every element, including boxes and lassos drawn later.
 function EnableSelection() {
-    for (const visualElement of visualizationElement.visualElements) {
-        EnableSelectionOfElement(visualElement)
-    }
-}
+    if (selectionListenerAdded) return
+    selectionListenerAdded = true
 
-// Enable user to select/deselect a single visual element
-function EnableSelectionOfElement(visualElement) {
-    visualElement.addEventListener("click", evt => {
+    visualContainer.addEventListener("click", evt => {
+        const visualElement = findVisualElement(evt.target, visualizationElement?.svg)
+        if (!visualElement) return
+
         if (page.mode == MODELABEL_SELECT_ELEMENTS) {
-            visualizationElement.toggleSelection(evt.currentTarget)
-        }
-    })
-
-    visualElement.addEventListener("click", evt => {
-        if (page.mode == MODELABEL_SET_SELECTABLE) {
-            visualizationElement.toggleSelectable(evt.currentTarget)
+            visualizationElement.toggleSelection(visualElement)
+        } else if (page.mode == MODELABEL_SET_SELECTABLE) {
+            visualizationElement.toggleSelectable(visualElement)
             autosave.save()
-        }
-    })
-
-    if (visualizationElement.isCustom(visualElement)) {
-        visualElement.addEventListener("click", evt => {
-            if (page.mode == MODELABEL_DELETE) {
+        } else if (page.mode == MODELABEL_DELETE) {
+            if (visualizationElement.isCustom(visualElement)) {
                 visualizationElement.removeVisualElement(visualElement)
                 autosave.save()
             }
-        })
-    }
-
-    visualElement.addEventListener("click", evt => {
-        if (page.mode == MODELABEL_HIGHLIGHT_TOOL) {
-            evt.currentTarget.classList.toggle("highlight")
+        } else if (page.mode == MODELABEL_HIGHLIGHT_TOOL) {
+            visualElement.classList.toggle("highlight")
             autosave.save()
         }
     })
@@ -259,7 +251,6 @@ function EnableBox() {
         if (box) {
             box.removeAttribute("id")
             visualizationElement.addVisualElement(box)
-            EnableSelectionOfElement(box)
             autosave.save()
 
             box = null
@@ -354,7 +345,6 @@ function EnableLassoSelection() {
 
             visualizationElement.svg.appendChild(lassoPolygon)
             visualizationElement.addVisualElement(lassoPolygon)
-            EnableSelectionOfElement(lassoPolygon)
 
             autosave.save()
         }
