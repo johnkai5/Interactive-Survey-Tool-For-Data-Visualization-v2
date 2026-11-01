@@ -4,6 +4,7 @@
 // this one by changing wrapper.onmousedown under the onChangeMode function
 
 import { visualizationElement, svgElement, wrapper, debug, screenToSVG, page, staticvis } from "../visualizer.js"
+import { rafThrottle } from "./elementEvents.js"
 
 let startPanning = null
 
@@ -51,22 +52,27 @@ function EnablePanning(visualizer) {
     }
     wrapper.onmousedown = startPanning
 
+    // moving the viewBox repaints the whole visual, so only the latest mouse position in a frame is applied
+    // (it still runs if the mouse is released before the frame, so the last movement isn't dropped)
+    const panTo = rafThrottle((clientX, clientY) => {
+        // get scale of visualization as it is displayed in the window
+        const svgBoundingBox = visualizationElement.svg.getBoundingClientRect()
+        const svgWindowScale = (svgBoundingBox.width + svgBoundingBox.height) / 2
+
+        // panning speed adjusts based on visualization's programmed scale and its window scale
+        const speedModifier = visualizationElement.scale / svgWindowScale
+
+        // coordinates to move visual to
+        visualizationElement.x = startXVisual - (clientX - startXMouse) * speedModifier
+        visualizationElement.y = startYVisual - (clientY - startYMouse) * speedModifier
+    })
+
     // define behavior for when user moves mouse while panning
     document.addEventListener("mousemove", evt => {
         if (isPanning) {
             // prevent mouse from highlighting text while panning
             evt.preventDefault()
-
-            // get scale of visualization as it is displayed in the window
-            const svgBoundingBox = visualizationElement.svg.getBoundingClientRect()
-            const svgWindowScale = (svgBoundingBox.width + svgBoundingBox.height) / 2
-
-            // panning speed adjusts based on visualization's programmed scale and its window scale 
-            const speedModifier = visualizationElement.scale / svgWindowScale
-
-            // coordinates to move visual to
-            visualizationElement.x = startXVisual - (evt.clientX - startXMouse) * speedModifier
-            visualizationElement.y = startYVisual - (evt.clientY - startYMouse) * speedModifier
+            panTo(evt.clientX, evt.clientY)
         }
     })
 
@@ -96,6 +102,15 @@ function EnableZoom() {
         document.body.style.setProperty("--zoom-scale", visualizationElement.scale / 80 + "px")
     }
 
+    // Trackpads can fire several wheel events per frame. Their factors are multiplied together and
+    // applied once per frame, which gives the same final zoom with a single repaint.
+    let pendingZoomFactor = 1
+    const flushZoom = rafThrottle(() => {
+        const factor = pendingZoomFactor
+        pendingZoomFactor = 1
+        applyZoomFactor(factor)
+    })
+
     // --- Scroll wheel zoom on wrapper ---
     if (wrapper) {
         wrapper.addEventListener(
@@ -106,10 +121,12 @@ function EnableZoom() {
 
                 if (evt.deltaY < 0) {
                     // scroll up -> zoom in
-                    applyZoomFactor(zoomInIntensity)
+                    pendingZoomFactor *= zoomInIntensity
+                    flushZoom()
                 } else if (evt.deltaY > 0) {
                     // scroll down -> zoom out
-                    applyZoomFactor(zoomOutIntensity)
+                    pendingZoomFactor *= zoomOutIntensity
+                    flushZoom()
                 }
             },
             { passive: false } // needed so preventDefault works
