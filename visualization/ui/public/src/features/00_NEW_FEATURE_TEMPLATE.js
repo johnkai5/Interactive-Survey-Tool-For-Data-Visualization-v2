@@ -14,6 +14,11 @@
 *       autosave - interface for autosaving (calling autosave.save() will save the visual)
 *
 * Do note that each function in this template is optional, so if no new code is added, it's best to delete it to save on memory.
+*
+* To react to clicks or hovers on SVG elements, add ONE listener to visualContainer (once, not on every load)
+* and find the element with the helpers in ./elementEvents.js. Don't add listeners to each element:
+* large visualizations have thousands of elements, and per-element listeners made them lag.
+* (see documents/adr/ADR-006-delegated-visualization-events.md)
 */
 
 import { visualizationElement, svgElement, wrapper, debug, screenToSVG, page, visualContainer, autosave } from "../visualizer.js"
